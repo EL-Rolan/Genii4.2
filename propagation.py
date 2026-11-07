@@ -7,7 +7,7 @@ from torch import nn
 WAVELENGTH_M = 532e-9
 DOE_PIXEL_SIZE_M = 10e-6
 DISTANCES_M = (24.1e-3, 25.3e-3, 26.5e-3, 27.7e-3)
-
+#БПФ исп. в train и infer
 def centered_fft2(x: torch.Tensor) -> torch.Tensor:
     #Прямое БПФ с центрированием спектра
     return torch.fft.fftshift(

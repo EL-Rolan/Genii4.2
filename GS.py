@@ -296,3 +296,6 @@ def main() -> None:
     print("  doe_phase_radians.npy    — фаза в радианах (float)")
     print("  reconstructed_1..4.png   — четыре восстановленных изображения |U|")
     print("  metrics.csv              — КК и ИСС для каждой пары")
+
+if __name__ == "__main__":
+    main()
