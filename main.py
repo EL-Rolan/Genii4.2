@@ -1,37 +1,32 @@
-"""Convenience entry point for the DOE command-line application."""
-from __future__ import annotations
-
 import sys
 import subprocess
 from pathlib import Path
 
-COMMANDS = {
+COMMANDS = {  #Команды и соответствующие файлы запуска
     "train": "train.py",
     "infer": "infer.py",
-    "classical": "classical_multi_plane_doe.py",
+    "classical": "GS.py",
     "check-images": "dataset.py",
     "mnist-info": "mnist_dataset.py",
-    "check-install": "check_install.py",
 }
 
-USAGE = """Multi-plane phase-DOE project
+USAGE = """Проект синтеза многоплоскостной фазовой ДОЭ
 
-Usage:
-  python main.py <command> [arguments for that command]
+Использование:
+  python main.py <команда> [аргументы команды]
 
-Commands:
-  train          Train the PyTorch model
-  infer          Predict a DOE from pic1.png ... pic4.png
-  classical      Run the classical Gerchberg-Saxton baseline
-  check-images   Validate the four input PNG files
-  mnist-info     Download and inspect the MNIST dataset
-  check-install  Check Fresnel parity and PyTorch autograd
+Команды:
+  train          Обучение модели PyTorch
+  infer          Синтез ДОЭ по pic1.png ... pic4.png
+  classical      Запуск классического алгоритма Гершберга—Сакстона
+  check-images   Проверка четырёх входных PNG
+  mnist-info     Загрузка и просмотр набора MNIST
 
-Examples:
-  python main.py check-install
+Примеры:
   python main.py mnist-info
   python main.py train --epochs 10 --batch-size 4
   python main.py infer --input-dir . --checkpoint checkpoints/best.pt
+  python main.py classical
 """
 
 
@@ -42,7 +37,7 @@ def main() -> None:
 
     command = sys.argv[1]
     if command not in COMMANDS:
-        print(f"Unknown command: {command}\n")
+        print(f"Неизвестная команда: {command}\n")
         print(USAGE)
         raise SystemExit(2)
 

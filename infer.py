@@ -1,6 +1,3 @@
-"""Predict a phase-only DOE from pic1.png ... pic4.png using a trained model."""
-from __future__ import annotations
-
 import argparse
 import csv
 import math
@@ -17,15 +14,14 @@ from propagation import FresnelPropagator
 
 FILENAMES = ("pic1.png", "pic2.png", "pic3.png", "pic4.png")
 
-
 def load_image(path: Path, resize: bool, representation: str) -> np.ndarray:
     if not path.is_file():
-        raise FileNotFoundError(f"Input image not found: {path}")
+        raise FileNotFoundError(f"Входное изображение не найдено: {path}")
     with Image.open(path) as im:
         im = im.convert("L")
         if im.size != (128, 128):
             if not resize:
-                raise ValueError(f"{path.name} has size {im.size}; expected (128, 128). Use --resize to resize it.")
+                raise ValueError(f"Файл {path.name} имеет размер {im.size}; ожидается (128, 128). Для изменения размера используйте --resize.")
             im = im.resize((128, 128), Image.Resampling.LANCZOS)
         arr = np.asarray(im, dtype=np.float32) / 255.0
     if representation == "intensity":
@@ -48,11 +44,11 @@ def save_normalized_image(array: np.ndarray, path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the trained PyTorch DOE model")
-    parser.add_argument("--input-dir", default=".", help="Folder containing pic1.png ... pic4.png")
+    parser = argparse.ArgumentParser(description="Запуск обученной модели ДОЭ на PyTorch")
+    parser.add_argument("--input-dir", default=".", help="Папка с файлами pic1.png ... pic4.png")
     parser.add_argument("--checkpoint", default="./checkpoints/best.pt")
     parser.add_argument("--output-dir", default="./neural_results")
-    parser.add_argument("--resize", action="store_true", help="Resize non-128x128 images")
+    parser.add_argument("--resize", action="store_true", help="Изменять размер изображений, отличных от 128x128")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--representation", choices=("checkpoint", "amplitude", "intensity"), default="checkpoint")
     args = parser.parse_args()
@@ -64,13 +60,13 @@ def main() -> None:
 
     try:
         checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    except TypeError:  # compatibility with older PyTorch releases
+    except TypeError:
         checkpoint = torch.load(args.checkpoint, map_location=device)
 
     representation = checkpoint.get("representation", "amplitude") if args.representation == "checkpoint" else args.representation
     input_dir = Path(args.input_dir)
     target_arrays = [load_image(input_dir / name, args.resize, representation) for name in FILENAMES]
-    target = torch.from_numpy(np.stack(target_arrays)).unsqueeze(0).to(device)  # [1,4,128,128]
+    target = torch.from_numpy(np.stack(target_arrays)).unsqueeze(0).to(device)
 
     model = PhaseDOEUNet(in_channels=4, base_channels=int(checkpoint.get("base_channels", 32))).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -82,15 +78,14 @@ def main() -> None:
     ).to(device)
 
     with torch.no_grad():
-        phase = model(target)[0].cpu().numpy()
+        phase = model(target)[0].cpu().numpy()  #Одна фазовая карта для четырёх входных изображений
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "doe_phase_radians.npy", phase.astype(np.float32))
     doe_u8 = phase_to_uint8(phase)
-    Image.fromarray(doe_u8, mode="L").save(output_dir / "doe.png")
+    Image.fromarray(doe_u8, mode="L").save(output_dir / "doe.png")  #PNG, 8 бит, оттенки серого
 
-    # Evaluate the actual quantized DOE image that is written to disk.
     decoded_phase = doe_u8.astype(np.float32) * (2.0 * math.pi / 255.0) - math.pi
     phase_tensor = torch.from_numpy(decoded_phase).unsqueeze(0).to(device)
     with torch.no_grad():
@@ -108,13 +103,13 @@ def main() -> None:
         ssim = float(structural_similarity(target_norm, rec_norm, data_range=1.0))
         dx_out_um = propagator.wavelength_m * (z_mm * 1e-3) / (128 * propagator.doe_pixel_size_m) * 1e6
         rows.append({"plane": index, "distance_mm": z_mm, "output_pixel_pitch_um": dx_out_um, "pearson": pearson, "ssim": ssim})
-        print(f"plane {index}: z={z_mm:.1f} mm, dx_out={dx_out_um:.3f} um, Pearson={pearson:.5f}, SSIM={ssim:.5f}")
+        print(f"Плоскость {index}: z={z_mm:.1f} мм, dx_out={dx_out_um:.3f} мкм, КК={pearson:.5f}, ИСС={ssim:.5f}")
 
     with (output_dir / "metrics.csv").open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"DOE and reconstructions saved to: {output_dir.resolve()}")
+    print(f"ДОЭ и восстановленные изображения сохранены в: {output_dir.resolve()}")
 
 
 if __name__ == "__main__":

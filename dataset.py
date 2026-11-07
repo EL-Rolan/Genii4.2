@@ -1,21 +1,5 @@
-"""Подготовка набора изображений для проекта синтеза фазовой ДОЭ.
-
-По умолчанию программа ищет рядом с dataset.py файлы:
-    pic1.png, pic2.png, pic3.png, pic4.png
-
-Ожидаемый формат каждого файла: PNG, 128x128 пикселей, grayscale.
-
-Примеры:
-    python dataset.py
-    python dataset.py --make-mnist
-    python dataset.py --data-dir ./data
-
-Класс HologramDataset не зависит от PyTorch: он возвращает NumPy-массивы.
-Его можно передать в torch.utils.data.DataLoader, поскольку у класса есть
-__len__ и __getitem__.
-"""
-
-from __future__ import annotations
+"""программа ищет рядом с dataset.py файлы: pic1.png, pic2.png, pic3.png, pic4.png
+Формат каждого файла должен соответствовать кейсу: PNG, 128x128 пикселей, grayscale."""
 
 import argparse
 from pathlib import Path
@@ -23,7 +7,6 @@ from typing import Literal, Sequence
 
 import numpy as np
 from PIL import Image
-
 
 # Параметры задачи. Порядок расстояний соответствует pic1.png ... pic4.png.
 DEFAULT_Z_POSITIONS_MM: tuple[float, ...] = (24.1, 25.3, 26.5, 27.7)
@@ -33,33 +16,10 @@ DEFAULT_FILENAMES: tuple[str, ...] = (
     "pic3.png",
     "pic4.png",
 )
-DEFAULT_IMAGE_SIZE: tuple[int, int] = (128, 128)  # (width, height)
+DEFAULT_IMAGE_SIZE: tuple[int, int] = (128, 128)
 
 
-class HologramDataset:
-    """Загружает четыре целевых изображения и соответствующие расстояния.
-
-    Args:
-        data_dir: папка с pic1.png ... pic4.png.
-        filenames: имена файлов в порядке целевых плоскостей.
-        z_positions_mm: расстояния до плоскостей в миллиметрах.
-        image_size: ожидаемый размер (width, height).
-        png_representation:
-            "intensity" — яркость PNG трактуется как интенсивность света;
-                          амплитуда поля вычисляется как sqrt(intensity).
-            "amplitude" — яркость PNG трактуется как амплитуда поля;
-                          амплитуда равна нормализованной яркости.
-        resize: если True, изображения не 128x128 будут приведены к image_size.
-                По умолчанию False, чтобы случайно не исказить входные данные.
-
-    Каждый элемент dataset[i] — словарь с полями:
-        image:             исходная нормализованная яркость, float32, [0, 1]
-        target_amplitude:  целевая амплитуда, float32, [0, 1]
-        z_mm:              расстояние до плоскости, float32
-        index:             номер изображения, начиная с 0
-        path:              путь к исходному файлу
-    """
-
+class HologramDataset: #Исп.класс, чтобы получить один объект для посл.работы с DataLoader
     def __init__(
         self,
         data_dir: str | Path = Path(__file__).resolve().parent,
@@ -104,11 +64,9 @@ class HologramDataset:
         ]
 
     def _load_image(self, path: Path) -> np.ndarray:
-        """Открывает PNG, приводит к grayscale и нормализует значения до [0, 1]."""
         try:
             with Image.open(path) as source:
-                # Конвертация в L даёт один 8-битный канал яркости.
-                image = source.convert("L")
+                image = source.convert("L") #Конвертация в L даёт один 8-битный канал яркости
         except Exception as exc:
             raise ValueError(f"Не удалось открыть изображение {path}: {exc}") from exc
 
@@ -128,8 +86,7 @@ class HologramDataset:
             )
         return np.ascontiguousarray(array, dtype=np.float32)
 
-    def _make_amplitude(self, image: np.ndarray) -> np.ndarray:
-        """Преобразует яркость PNG в амплитуду целевого поля."""
+    def _make_amplitude(self, image: np.ndarray) -> np.ndarray: #Преобразует яркость PNG в амплитуду целевого поля
         if self.png_representation == "intensity":
             amplitude = np.sqrt(np.clip(image, 0.0, 1.0))
         else:
@@ -153,26 +110,18 @@ class HologramDataset:
             "path": str(self.paths[index]),
         }
 
-    def images_as_array(self) -> np.ndarray:
-        """Возвращает все изображения одним массивом формы (4, 128, 128)."""
+    def images_as_array(self) -> np.ndarray: #Возвращает все изображения одним массивом формы (4, 128, 128)
         return np.stack(self.images, axis=0).astype(np.float32, copy=False)
 
     def amplitudes_as_array(self) -> np.ndarray:
-        """Возвращает целевые амплитуды одним массивом формы (4, 128, 128)."""
         return np.stack(self.amplitudes, axis=0).astype(np.float32, copy=False)
-
 
 def export_mnist_examples(
     output_dir: str | Path = Path(__file__).resolve().parent,
     indices: Sequence[int] = (0, 1, 2, 3),
     image_size: tuple[int, int] = DEFAULT_IMAGE_SIZE,
     mnist_dir: str | Path | None = None,
-) -> list[Path]:
-    """Сохраняет выбранные изображения MNIST как pic1.png ... pic4.png.
-
-    Для этой функции дополнительно нужны пакеты torch и torchvision.
-    Сам класс HologramDataset от них не зависит.
-    """
+) -> list[Path]:   #Сохраняет выбранные изображения MNIST как pic1.png....pic4.png
     try:
         from torchvision.datasets import MNIST
     except ImportError as exc:
@@ -208,12 +157,9 @@ def export_mnist_examples(
         pil_image.save(output_path, format="PNG")
         saved_paths.append(output_path)
         print(f"Сохранено: {output_path.name} (цифра {label}, индекс MNIST {dataset_index})")
-
     return saved_paths
 
-
-def print_dataset_info(dataset: HologramDataset) -> None:
-    """Печатает краткую проверку набора данных."""
+def print_dataset_info(dataset: HologramDataset) -> None: #отладочная печать
     print("\nНабор данных загружен успешно")
     print(f"Папка: {dataset.data_dir}")
     print(f"Количество изображений: {len(dataset)}")
@@ -283,7 +229,3 @@ def main() -> None:
         png_representation=args.png_representation,
     )
     print_dataset_info(dataset)
-
-
-if __name__ == "__main__":
-    main()

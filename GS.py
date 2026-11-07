@@ -1,22 +1,6 @@
-#!/usr/bin/env python3
-"""Classical multi-plane phase-only DOE synthesis (no PyTorch).
-
-Place pic1.png, pic2.png, pic3.png, pic4.png next to this script and run:
-    python classical_multi_plane_doe.py
-
-The script:
-  1) reads and converts the four images to 128x128 grayscale;
-  2) computes one phase-only DOE with a multi-plane Gerchberg-Saxton loop;
-  3) saves the 8-bit phase DOE as results/doe.png;
-  4) reloads the quantized DOE and reconstructs four planes using the
-     one-FFT Fresnel formula;
-  5) saves four amplitude (|U|) images and Pearson/SSIM metrics.
-
-Dependencies:
-    pip install numpy Pillow scipy scikit-image
+"""Решение алгоритмом Гершберга - Сакстона
+400 итераций
 """
-
-from __future__ import annotations
 
 import csv
 import math
@@ -27,38 +11,21 @@ import numpy as np
 from PIL import Image
 from scipy.stats import pearsonr
 from skimage.metrics import structural_similarity
-
-
-# ---------------------------------------------------------------------------
-# User-adjustable settings
-# ---------------------------------------------------------------------------
-
 IMAGE_SIZE = 128
 INPUT_FILENAMES = ("pic1.png", "pic2.png", "pic3.png", "pic4.png")
 
-WAVELENGTH_M = 532e-9       # 532 nm
-DOE_PIXEL_SIZE_M = 10e-6    # 10 um pixel pitch on the SLM
+WAVELENGTH_M = 532e-9       #532нм
+DOE_PIXEL_SIZE_M = 10e-6    #10мкм
 DISTANCES_M = (24.1e-3, 25.3e-3, 26.5e-3, 27.7e-3)
 
 ITERATIONS = 400
-RELAXATION = 0.7            # 0 < RELAXATION <= 1
+RELAXATION = 0.7            #Коэфф. релаксации
 RANDOM_SEED = 7
-
-# The assignment says reconstructed images are saved as the modulus |U|.
-# Therefore, by default, each input grayscale value is treated as desired
-# field amplitude. Set this to True only if your input grayscale values are
-# intended to represent optical intensity; then target amplitude is sqrt(I).
 INPUT_IMAGES_ARE_INTENSITY = False
 
 OUTPUT_DIRNAME = "results"
 
-
-# ---------------------------------------------------------------------------
-# Image I/O and phase encoding
-# ---------------------------------------------------------------------------
-
 def load_grayscale_image(path: Path, size: int = IMAGE_SIZE) -> np.ndarray:
-    """Load a PNG as float32 grayscale array in [0, 1], shape (size, size)."""
     if not path.is_file():
         raise FileNotFoundError(
             f"Не найден файл {path.name}. Положите его рядом со скриптом."
@@ -76,23 +43,15 @@ def load_grayscale_image(path: Path, size: int = IMAGE_SIZE) -> np.ndarray:
         raise ValueError(f"В {path.name} обнаружены NaN или inf.")
     return np.clip(array, 0.0, 1.0)
 
-
 def phase_to_uint8(phase: np.ndarray) -> np.ndarray:
-    """Map phase [-pi, +pi] to uint8 [0, 255]."""
-    # Clip rather than wrap so the required endpoint mapping is preserved:
-    # -pi -> 0 and +pi -> 255. The two endpoints are physically equivalent.
     clipped = np.clip(phase, -np.pi, np.pi)
     encoded = np.rint((clipped + np.pi) * (255.0 / (2.0 * np.pi)))
     return np.clip(encoded, 0, 255).astype(np.uint8)
 
-
 def uint8_to_phase(encoded: np.ndarray) -> np.ndarray:
-    """Inverse mapping for the stored 8-bit phase DOE."""
     return encoded.astype(np.float64) * (2.0 * np.pi / 255.0) - np.pi
 
-
 def save_grayscale_png(array_01: np.ndarray, path: Path) -> None:
-    """Save a nonnegative image after scaling its maximum to 255."""
     array = np.asarray(array_01, dtype=np.float64)
     array = np.nan_to_num(array, nan=0.0, posinf=0.0, neginf=0.0)
     array = np.maximum(array, 0.0)
@@ -102,25 +61,17 @@ def save_grayscale_png(array_01: np.ndarray, path: Path) -> None:
     encoded = np.rint(np.clip(array, 0.0, 1.0) * 255.0).astype(np.uint8)
     Image.fromarray(encoded, mode="L").save(path, format="PNG")
 
-
-# ---------------------------------------------------------------------------
-# One-FFT Fresnel propagation and its exact discrete inverse
-# ---------------------------------------------------------------------------
-
 def centered_fft2(array: np.ndarray) -> np.ndarray:
-    """2-D FFT with zero frequency in the centre of the array."""
+    #Прямое БПФ на центрированной сетке
     return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(array)))
 
-
 def centered_ifft2(array: np.ndarray) -> np.ndarray:
-    """Inverse of centered_fft2 for the same sampled grid."""
+    #Обратное БПФ на центрированной сетке
     return np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(array)))
-
 
 def coordinate_grid(size: int, pixel_pitch: float) -> tuple[np.ndarray, np.ndarray]:
     coordinates = (np.arange(size, dtype=np.float64) - size // 2) * pixel_pitch
     return np.meshgrid(coordinates, coordinates, indexing="xy")
-
 
 def fresnel_propagate_one_fft(
     field_at_doe: np.ndarray,
@@ -128,12 +79,6 @@ def fresnel_propagate_one_fft(
     wavelength_m: float = WAVELENGTH_M,
     doe_pixel_size_m: float = DOE_PIXEL_SIZE_M,
 ) -> tuple[np.ndarray, float]:
-    """Propagate a complex field with the one-FFT Fresnel expression.
-
-    Returns (complex field on output plane, output pixel pitch in metres).
-    Input and output arrays have the same N x N shape, but output sampling is
-    dx_out = wavelength * z / (N * dx_in).
-    """
     if field_at_doe.ndim != 2 or field_at_doe.shape[0] != field_at_doe.shape[1]:
         raise ValueError("Поле ДОЭ должно быть квадратной двумерной матрицей.")
     if distance_m <= 0 or wavelength_m <= 0 or doe_pixel_size_m <= 0:
@@ -155,14 +100,12 @@ def fresnel_propagate_one_fft(
     field_out = prefactor * chirp_out * spectrum * (dx_in**2)
     return field_out, dx_out
 
-
 def fresnel_backpropagate_one_fft(
     field_at_output: np.ndarray,
     distance_m: float,
     wavelength_m: float = WAVELENGTH_M,
     doe_pixel_size_m: float = DOE_PIXEL_SIZE_M,
 ) -> np.ndarray:
-    """Exact numerical inverse of fresnel_propagate_one_fft on its sampled grid."""
     n = field_at_output.shape[0]
     k = 2.0 * np.pi / wavelength_m
     dx_in = doe_pixel_size_m
@@ -179,22 +122,7 @@ def fresnel_backpropagate_one_fft(
     field_before_chirp = centered_ifft2(spectrum)
     return field_before_chirp * np.conj(chirp_in)
 
-
-# ---------------------------------------------------------------------------
-# Multi-plane Gerchberg-Saxton phase-only DOE synthesis
-# ---------------------------------------------------------------------------
-
-def prepare_target_amplitudes(
-    images: Iterable[np.ndarray],
-    distances_m: Iterable[float],
-) -> tuple[list[np.ndarray], list[float]]:
-    """Convert input images to target amplitudes and equalize optical power.
-
-    A phase-only DOE has unit amplitude at its plane. The discrete Fresnel
-    transform conserves sampled optical power when the output pitch is
-    dx_out=lambda*z/(N*dx_in). For each target plane, scale its amplitude so
-    sum(|target|^2)*dx_out^2 equals the DOE-plane power N^2*dx_in^2.
-    """
+def prepare_target_amplitudes(images: Iterable[np.ndarray], distances_m: Iterable[float],) -> tuple[list[np.ndarray], list[float]]:
     targets: list[np.ndarray] = []
     output_pixel_sizes: list[float] = []
     n = IMAGE_SIZE
@@ -222,7 +150,6 @@ def wrap_phase(phase: np.ndarray) -> np.ndarray:
 
 
 def normalized_shape_error(actual: np.ndarray, target: np.ndarray) -> float:
-    """Relative shape MSE after L2 normalization (for progress reporting)."""
     actual = np.asarray(actual, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
     actual_norm = np.linalg.norm(actual)
@@ -231,29 +158,10 @@ def normalized_shape_error(actual: np.ndarray, target: np.ndarray) -> float:
         return float("inf")
     actual = actual / actual_norm
     target = target / target_norm
-    # Squared relative L2 distance (not per-pixel MSE); the latter would be
-    # artificially tiny for 128x128 arrays because it is divided by N*N.
     return float(np.sum((actual - target) ** 2))
 
 
-def synthesize_phase_doe(
-    target_images: list[np.ndarray],
-    distances_m: tuple[float, ...] = DISTANCES_M,
-    iterations: int = ITERATIONS,
-    relaxation: float = RELAXATION,
-    seed: int = RANDOM_SEED,
-) -> np.ndarray:
-    """Find one phase-only DOE that approximates all target planes.
-
-    At every iteration:
-      1) propagate the current phase-only DOE to all four planes;
-      2) replace the modulus at each plane with its target amplitude;
-      3) back-propagate each constrained field to the DOE plane;
-      4) average the four complex estimates and retain only their phase.
-
-    This is a classical iterative multi-plane phase-retrieval method, not a
-    neural network and not a guarantee of an exact solution.
-    """
+def synthesize_phase_doe( target_images: list[np.ndarray], distances_m: tuple[float, ...] = DISTANCES_M, iterations: int = ITERATIONS, relaxation: float = RELAXATION, seed: int = RANDOM_SEED,) -> np.ndarray:
     if len(target_images) != 4 or len(distances_m) != 4:
         raise ValueError("Алгоритм ожидает ровно четыре изображения и четыре расстояния.")
     if iterations < 1:
@@ -269,7 +177,7 @@ def synthesize_phase_doe(
     best_error = float("inf")
 
     for iteration in range(1, iterations + 1):
-        field_at_doe = np.exp(1j * phase)  # phase-only DOE, unit input amplitude
+        field_at_doe = np.exp(1j * phase)  #Поле фазового ДОЭ
         backpropagated_fields = []
         errors = []
 
@@ -277,8 +185,6 @@ def synthesize_phase_doe(
             field_at_plane, _ = fresnel_propagate_one_fft(field_at_doe, z)
             current_amplitude = np.abs(field_at_plane)
             errors.append(normalized_shape_error(current_amplitude, target_amplitude))
-
-            # Projection onto the target-modulus constraint at this plane.
             constrained_field = target_amplitude * np.exp(1j * np.angle(field_at_plane))
             field_estimate_at_doe = fresnel_backpropagate_one_fft(constrained_field, z)
             backpropagated_fields.append(field_estimate_at_doe)
@@ -286,13 +192,11 @@ def synthesize_phase_doe(
         mean_error = float(np.mean(errors))
         if mean_error < best_error:
             best_error = mean_error
-            # Save the phase that was actually used to calculate this error.
             best_phase = phase.copy()
 
         mean_backpropagated = np.mean(backpropagated_fields, axis=0)
         proposed_phase = np.angle(mean_backpropagated)
 
-        # Circular phase interpolation; avoids a discontinuity at +/-pi.
         phase_difference = np.angle(np.exp(1j * (proposed_phase - phase)))
         phase = wrap_phase(phase + relaxation * phase_difference)
 
@@ -305,11 +209,6 @@ def synthesize_phase_doe(
 
     print(f"Лучшая средняя ошибка по ходу итераций: {best_error:.6g}")
     return best_phase
-
-
-# ---------------------------------------------------------------------------
-# Reconstruction, metrics and main
-# ---------------------------------------------------------------------------
 
 def pearson_correlation(reference: np.ndarray, reconstructed: np.ndarray) -> float:
     a = np.asarray(reference, dtype=np.float64).ravel()
@@ -327,22 +226,18 @@ def main() -> None:
     print("1) Чтение четырёх исходных изображений...")
     input_paths = [script_dir / name for name in INPUT_FILENAMES]
     original_images = [load_grayscale_image(path) for path in input_paths]
-    print("   Все изображения приведены к 128x128, grayscale, float32 [0, 1].")
+    print("   Все изображения приведены к 128x128, оттенки серого, float32 [0, 1].")
 
-    print("2) Синтез одной фазовой ДОЭ методом multi-plane Gerchberg–Saxton...")
+    print("2) Синтез одной фазовой ДОЭ многоплоскостным методом Гершберга—Сакстона (ГС)...")
     phase = synthesize_phase_doe(original_images)
 
-    # Save floating-point phase for research/reproducibility.
     np.save(output_dir / "doe_phase_radians.npy", phase.astype(np.float32))
 
-    # Encode and save the exact 8-bit DOE required by the task.
     doe_uint8 = phase_to_uint8(phase)
     doe_path = output_dir / "doe.png"
     Image.fromarray(doe_uint8, mode="L").save(doe_path, format="PNG")
     print(f"   ДОЭ сохранена: {doe_path}")
 
-    # The reconstruction is intentionally calculated from the quantized PNG,
-    # not from the unquantized phase array.
     with Image.open(doe_path) as doe_image:
         decoded_doe = np.asarray(doe_image.convert("L"), dtype=np.uint8)
     quantized_phase = uint8_to_phase(decoded_doe)
@@ -354,8 +249,6 @@ def main() -> None:
     for index, (z, original) in enumerate(zip(DISTANCES_M, original_images), start=1):
         field_at_plane, dx_out = fresnel_propagate_one_fft(doe_field, z)
 
-        # The supplied task wording says to save the modulus of the complex
-        # field, hence |U| is saved (not |U|^2).
         reconstructed_amplitude = np.abs(field_at_plane)
         reconstructed_path = output_dir / f"reconstructed_{index}.png"
         save_grayscale_png(reconstructed_amplitude, reconstructed_path)
@@ -386,7 +279,7 @@ def main() -> None:
         print(
             f"   {reconstructed_path.name}: z={z * 1e3:.1f} mm, "
             f"dx_out={dx_out * 1e6:.3f} um, "
-            f"Pearson={pearson:.5f}, SSIM={ssim:.5f}"
+            f"КК={pearson:.5f}, ИСС={ssim:.5f}"
         )
 
     metrics_path = output_dir / "metrics.csv"
@@ -399,11 +292,7 @@ def main() -> None:
         writer.writerows(metric_rows)
 
     print("\nГотово. Результаты находятся в папке:", output_dir)
-    print("  doe.png                  — фазовая ДОЭ, 8-bit grayscale")
-    print("  doe_phase_radians.npy    — фаза в радианах (float32)")
-    print("  reconstructed_1..4.png  — четыре восстановления |U|")
-    print("  metrics.csv              — Pearson и SSIM для каждой пары")
-
-
-if __name__ == "__main__":
-    main()
+    print("  doe.png                  — фазовая ДОЭ, 8 бит, оттенки серого")
+    print("  doe_phase_radians.npy    — фаза в радианах (float)")
+    print("  reconstructed_1..4.png   — четыре восстановленных изображения |U|")
+    print("  metrics.csv              — КК и ИСС для каждой пары")
