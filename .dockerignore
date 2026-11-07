@@ -1,0 +1,15 @@
+.git
+.gitignore
+.idea
+.vscode
+.venv
+__pycache__
+*.py[cod]
+data
+mnist_cache
+results
+neural_results
+output
+*.rar
+*.zip
+examples/expected_output
