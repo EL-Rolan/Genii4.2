@@ -246,3 +246,11 @@ dx_out = wavelength * z / (N * dx_in)
 
 - Использован датасет рукописных цифр MNIST
 - используется cuda pytorch
+- Параметры обученной модели: Checkpoint: E:\NuclearITHack\checkpoints\best.pt
+Epoch: 10
+Loss: None
+Representation: amplitude
+Base channels: 32
+Wavelength: 5.32e-07
+Pixel size: 1e-05
+Distances: (0.0241, 0.0253, 0.0265, 0.0277)
